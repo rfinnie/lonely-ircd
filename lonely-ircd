@@ -20,6 +20,8 @@
 
 import socketserver
 import ssl
+import sys
+import argparse
 
 
 class SSLTCPServer(socketserver.TCPServer):
@@ -49,6 +51,21 @@ class SSLForkingServer(socketserver.ForkingMixIn, SSLTCPServer):
     pass
 
 
+class TCPServer(socketserver.TCPServer):
+    def __init__(
+        self, server_address, RequestHandlerClass, bind_and_activate=True,
+        allow_reuse_address=True,
+    ):
+        self.allow_reuse_address = allow_reuse_address
+        socketserver.TCPServer.__init__(
+            self, server_address, RequestHandlerClass, bind_and_activate
+        )
+
+
+class ForkingServer(socketserver.ForkingMixIn, TCPServer):
+    pass
+
+
 class LonelyHandler(socketserver.StreamRequestHandler):
     def handle(self):
         self.irc_info = {
@@ -66,10 +83,11 @@ class LonelyHandler(socketserver.StreamRequestHandler):
                 self.request.close()
                 return
             data = data.rstrip(b'\r\n')
-            print('{} < {}'.format(
+            print('{} {} < {}'.format(
                 repr(self.client_address),
+                repr(self.server.server_address),
                 str(data),
-            ))
+            ), flush=True)
             if not data:
                 break
             commands = data.decode('UTF-8').split(' ')
@@ -77,10 +95,11 @@ class LonelyHandler(socketserver.StreamRequestHandler):
 
     def client_write(self, data):
         out = (data + '\r\n').encode('UTF-8')
-        print('{} > {}'.format(
+        print('{} {} > {}'.format(
             repr(self.client_address),
+            repr(self.server.server_address),
             str(data),
-        ))
+        ), flush=True)
         self.wfile.write(out)
 
     def handle_command(self, commands):
@@ -161,13 +180,39 @@ class LonelyHandler(socketserver.StreamRequestHandler):
             self.request.close()
 
 
-if __name__ == '__main__':
-    server = SSLForkingServer(
-        ('0.0.0.0', 6697),
-        LonelyHandler,
-        'cert.pem',
-        'key.pem',
+def parse_args(argv=None):
+    if argv is None:
+        argv = sys.argv
+
+    parser = argparse.ArgumentParser(
+        description='lonely-ircd',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
+    parser.add_argument(
+        '--ssl', dest='ssl', action='store_true',
+        help='Listen on SSL',
+    )
+
+    args = parser.parse_args(args=argv[1:])
+    return args
+
+
+if __name__ == '__main__':
+    args = parse_args()
+
+    if args.ssl:
+        server = SSLForkingServer(
+            ('0.0.0.0', 6697),
+            LonelyHandler,
+            'cert.pem',
+            'key.pem',
+        )
+    else:
+        server = ForkingServer(
+            ('0.0.0.0', 6667),
+            LonelyHandler,
+        )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
