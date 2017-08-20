@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+
+# lonely-ircd, the loneliness IRC server
+# Copyright (C) 2017 Ryan Finnie
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+import socketserver
+import ssl
+
+
+class SSLTCPServer(socketserver.TCPServer):
+    def __init__(
+        self, server_address, RequestHandlerClass, certfile, keyfile,
+        ssl_version=ssl.PROTOCOL_TLSv1, bind_and_activate=True,
+        allow_reuse_address=True,
+    ):
+        self.allow_reuse_address = allow_reuse_address
+        socketserver.TCPServer.__init__(
+            self, server_address, RequestHandlerClass, bind_and_activate
+        )
+        self.certfile = certfile
+        self.keyfile = keyfile
+        self.ssl_version = ssl_version
+
+    def get_request(self):
+        newsocket, fromaddr = self.socket.accept()
+        connstream = ssl.wrap_socket(
+            newsocket, server_side=True, certfile=self.certfile,
+            keyfile=self.keyfile, ssl_version=self.ssl_version,
+        )
+        return connstream, fromaddr
+
+
+class SSLForkingServer(socketserver.ForkingMixIn, SSLTCPServer):
+    pass
+
+
+class LonelyHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.irc_info = {
+            'nickname': 'nickname',
+            'username': 'username',
+            'hostname': 'localhost',
+            'servername': 'localhost',
+            'realname': 'IRC User',
+        }
+
+        while True:
+            try:
+                data = self.rfile.readline()
+            except KeyboardInterrupt:
+                self.request.close()
+                return
+            data = data.rstrip(b'\r\n')
+            print('{} < {}'.format(
+                repr(self.client_address),
+                str(data),
+            ))
+            if not data:
+                break
+            commands = data.decode('UTF-8').split(' ')
+            self.handle_command(commands)
+
+    def client_write(self, data):
+        out = (data + '\r\n').encode('UTF-8')
+        print('{} > {}'.format(
+            repr(self.client_address),
+            str(data),
+        ))
+        self.wfile.write(out)
+
+    def handle_command(self, commands):
+        if commands[0] == 'NICK':
+            self.irc_info['nickname'] = commands[1]
+        elif commands[0] == 'USER':
+            self.irc_info['username'] = commands[1]
+            self.irc_info['hostname'] = commands[2]
+            self.irc_info['servername'] = commands[3]
+            self.irc_info['realname'] = ' '.join(commands[4:]).lstrip(':')
+            self.client_write(':{} 375 {} :- {} Message of the day - '.format(
+                self.irc_info['servername'],
+                self.irc_info['nickname'],
+                self.irc_info['servername'],
+            ))
+            self.client_write(':{} 372 {} :- Welcome to the IRC server!'.format(
+                self.irc_info['servername'],
+                self.irc_info['nickname'],
+            ))
+            self.client_write(':{} 376 {} :End of /MOTD command'.format(
+                self.irc_info['servername'],
+                self.irc_info['nickname'],
+            ))
+        elif commands[0] == 'JOIN':
+            channels = commands[1].split(',')
+            for channel in channels:
+                self.client_write(':{}!{}@{} JOIN {}'.format(
+                    self.irc_info['nickname'],
+                    self.irc_info['username'],
+                    self.irc_info['hostname'],
+                    channel,
+                ))
+                self.client_write(':{} 353 {} = {} :@{}'.format(
+                    self.irc_info['servername'],
+                    self.irc_info['nickname'],
+                    channel,
+                    self.irc_info['nickname'],
+                ))
+                self.client_write(':{} 366 {} {} :End of /NAMES list'.format(
+                    self.irc_info['servername'],
+                    self.irc_info['nickname'],
+                    channel,
+                ))
+        elif commands[0] == 'PART':
+            channels = commands[1].split(',')
+            for channel in channels:
+                self.client_write(':{}!{}@{} PART {}'.format(
+                    self.irc_info['nickname'],
+                    self.irc_info['username'],
+                    self.irc_info['hostname'],
+                    channel,
+                ))
+        elif commands[0] == 'TOPIC':
+            self.client_write(':{} 331 {} :No topic is set'.format(
+                self.irc_info['servername'],
+                commands[1],
+            ))
+        elif commands[0] == 'NAMES':
+            channels = commands[1].split(',')
+            for channel in channels:
+                self.client_write(':{} 353 {} = {} :@{}'.format(
+                    self.irc_info['servername'],
+                    self.irc_info['nickname'],
+                    channel,
+                    self.irc_info['nickname'],
+                ))
+                self.client_write(':{} 366 {} {} :End of /NAMES list'.format(
+                    self.irc_info['servername'],
+                    self.irc_info['nickname'],
+                    channel,
+                ))
+        elif commands[0] == 'PING':
+                self.client_write(':{} PONG {}'.format(
+                    self.irc_info['servername'],
+                    commands[1],
+                ))
+        elif commands[0] == 'QUIT':
+            self.request.close()
+
+
+if __name__ == '__main__':
+    server = SSLForkingServer(
+        ('0.0.0.0', 6697),
+        LonelyHandler,
+        'cert.pem',
+        'key.pem',
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.server_close()
