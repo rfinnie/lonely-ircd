@@ -23,6 +23,7 @@ import socket
 import ssl
 import sys
 import argparse
+import time
 
 
 class TCPServer(socketserver.TCPServer):
@@ -71,13 +72,11 @@ class ForkingServer(socketserver.ForkingMixIn, TCPServer):
 
 class LonelyHandler(socketserver.StreamRequestHandler):
     def handle(self):
-        self.irc_info = {
-            'nickname': 'nickname',
-            'username': 'username',
-            'hostname': 'localhost',
-            'servername': 'localhost',
-            'realname': 'IRC User',
-        }
+        self.irc_nickname = None
+        self.irc_username = None
+        self.irc_hostname = None
+        self.irc_servername = None
+        self.irc_realname = None
 
         while True:
             try:
@@ -107,79 +106,144 @@ class LonelyHandler(socketserver.StreamRequestHandler):
 
     def handle_command(self, commands):
         if commands[0] == 'NICK':
-            self.irc_info['nickname'] = commands[1]
+            if (self.irc_nickname is not None) and (self.irc_username is not None):
+                self.client_write(':{}!{}@{} NICK :{}'.format(
+                    self.irc_nickname,
+                    self.irc_username,
+                    self.irc_hostname,
+                    commands[1],
+                ))
+            self.irc_nickname = commands[1]
         elif commands[0] == 'USER':
-            self.irc_info['username'] = commands[1]
-            self.irc_info['hostname'] = commands[2]
-            self.irc_info['servername'] = commands[3]
-            self.irc_info['realname'] = ' '.join(commands[4:]).lstrip(':')
+            self.irc_username = commands[1]
+            self.irc_hostname = commands[2]
+            self.irc_servername = commands[3]
+            self.irc_realname = ' '.join(commands[4:]).lstrip(':')
             self.client_write(':{} 375 {} :- {} Message of the day - '.format(
-                self.irc_info['servername'],
-                self.irc_info['nickname'],
-                self.irc_info['servername'],
+                self.irc_servername,
+                self.irc_nickname,
+                self.irc_servername,
             ))
             self.client_write(':{} 372 {} :- Welcome to the IRC server!'.format(
-                self.irc_info['servername'],
-                self.irc_info['nickname'],
+                self.irc_servername,
+                self.irc_nickname,
             ))
             self.client_write(':{} 376 {} :End of /MOTD command'.format(
-                self.irc_info['servername'],
-                self.irc_info['nickname'],
+                self.irc_servername,
+                self.irc_nickname,
             ))
+        elif (self.irc_nickname is None) or (self.irc_username is None):
+            return
         elif commands[0] == 'JOIN':
             channels = commands[1].split(',')
             for channel in channels:
                 self.client_write(':{}!{}@{} JOIN {}'.format(
-                    self.irc_info['nickname'],
-                    self.irc_info['username'],
-                    self.irc_info['hostname'],
+                    self.irc_nickname,
+                    self.irc_username,
+                    self.irc_hostname,
                     channel,
                 ))
                 self.client_write(':{} 353 {} = {} :@{}'.format(
-                    self.irc_info['servername'],
-                    self.irc_info['nickname'],
+                    self.irc_servername,
+                    self.irc_nickname,
                     channel,
-                    self.irc_info['nickname'],
+                    self.irc_nickname,
                 ))
                 self.client_write(':{} 366 {} {} :End of /NAMES list'.format(
-                    self.irc_info['servername'],
-                    self.irc_info['nickname'],
+                    self.irc_servername,
+                    self.irc_nickname,
                     channel,
                 ))
         elif commands[0] == 'PART':
             channels = commands[1].split(',')
             for channel in channels:
                 self.client_write(':{}!{}@{} PART {}'.format(
-                    self.irc_info['nickname'],
-                    self.irc_info['username'],
-                    self.irc_info['hostname'],
+                    self.irc_nickname,
+                    self.irc_username,
+                    self.irc_hostname,
                     channel,
                 ))
         elif commands[0] == 'TOPIC':
             self.client_write(':{} 331 {} :No topic is set'.format(
-                self.irc_info['servername'],
+                self.irc_servername,
                 commands[1],
             ))
+        elif commands[0] == 'MODE':
+            if len(commands) == 3:
+                if commands[1][0] == '#':
+                    if commands[2] == 'b':
+                        self.client_write(':{} 368 {} {} :End of Channel Ban List'.format(
+                            self.irc_servername,
+                            self.irc_nickname,
+                            commands[1],
+                        ))
+                    else:
+                        # TODO
+                        pass
+                else:
+                    self.client_write(':{} MODE {} :{}'.format(
+                        self.irc_nickname,
+                        commands[1],
+                        commands[2],
+                    ))
+            elif len(commands) == 2:
+                if commands[1][0] == '#':
+                    self.client_write(':{} 324 {} {} + '.format(
+                        self.irc_servername,
+                        self.irc_nickname,
+                        commands[1],
+                    ))
+                    self.client_write(':{} 329 {} {} {}'.format(
+                        self.irc_servername,
+                        self.irc_nickname,
+                        commands[1],
+                        str(int(time.time())),
+                    ))
+                else:
+                    self.client_write(':{} 221 {} + '.format(
+                        self.irc_servername,
+                        commands[1],
+                    ))
         elif commands[0] == 'NAMES':
             channels = commands[1].split(',')
             for channel in channels:
                 self.client_write(':{} 353 {} = {} :@{}'.format(
-                    self.irc_info['servername'],
-                    self.irc_info['nickname'],
+                    self.irc_servername,
+                    self.irc_nickname,
                     channel,
-                    self.irc_info['nickname'],
+                    self.irc_nickname,
                 ))
                 self.client_write(':{} 366 {} {} :End of /NAMES list'.format(
-                    self.irc_info['servername'],
-                    self.irc_info['nickname'],
+                    self.irc_servername,
+                    self.irc_nickname,
                     channel,
                 ))
+        elif commands[0] == 'WHO':
+            self.client_write(':{} 352 {} {} {} {} {} {} H@ :0 {}'.format(
+                self.irc_servername,
+                self.irc_nickname,
+                commands[1],
+                self.irc_nickname,
+                self.irc_hostname,
+                self.irc_servername,
+                self.irc_username,
+                self.irc_realname,
+            ))
+            self.client_write(':{} 315 {} {} :End of /WHO list'.format(
+                self.irc_servername,
+                self.irc_nickname,
+                commands[1],
+            ))
         elif commands[0] == 'PING':
-                self.client_write(':{} PONG {}'.format(
-                    self.irc_info['servername'],
-                    commands[1],
-                ))
+            self.client_write(':{} PONG {}'.format(
+                self.irc_servername,
+                commands[1],
+            ))
         elif commands[0] == 'QUIT':
+            self.client_write('ERROR :Closing Link: {}[{}]'.format(
+                self.irc_nickname,
+                self.irc_hostname,
+            ))
             self.request.close()
 
 
