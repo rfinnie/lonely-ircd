@@ -24,6 +24,7 @@ import ssl
 import sys
 import argparse
 import time
+import os
 
 
 class TCPServer(socketserver.TCPServer):
@@ -41,7 +42,7 @@ class TCPServer(socketserver.TCPServer):
 
 class SSLTCPServer(TCPServer):
     def __init__(
-        self, server_address, RequestHandlerClass, certfile, keyfile,
+        self, server_address, RequestHandlerClass, certfile,
         bind_and_activate=True, allow_reuse_address=True, v6=False,
     ):
         TCPServer.__init__(
@@ -49,13 +50,12 @@ class SSLTCPServer(TCPServer):
             allow_reuse_address=allow_reuse_address, v6=v6,
         )
         self.certfile = certfile
-        self.keyfile = keyfile
 
     def get_request(self):
         newsocket, fromaddr = self.socket.accept()
         ssl.RAND_pseudo_bytes(32)
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        ctx.load_cert_chain(self.certfile, self.keyfile)
+        ctx.load_cert_chain(self.certfile)
         connstream = ctx.wrap_socket(
             newsocket, server_side=True,
         )
@@ -251,6 +251,8 @@ def parse_args(argv=None):
     if argv is None:
         argv = sys.argv
 
+    default_certfile = os.path.join(os.getcwd(), 'cert.pem')
+
     parser = argparse.ArgumentParser(
         description='lonely-ircd',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -259,6 +261,11 @@ def parse_args(argv=None):
     parser.add_argument(
         '--ssl', dest='ssl', action='store_true',
         help='listen on SSL',
+    )
+
+    parser.add_argument(
+        '--ssl-certificate', dest='certfile', type=str, default=default_certfile,
+        help='ssl key/certificate',
     )
 
     parser.add_argument(
@@ -293,8 +300,7 @@ if __name__ == '__main__':
         server = SSLForkingServer(
             (args.addr, args.port),
             LonelyHandler,
-            'cert.pem',
-            'key.pem',
+            args.certfile,
             v6=v6,
         )
     else:
