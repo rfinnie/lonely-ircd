@@ -314,7 +314,7 @@ if __name__ == '__main__':
         args.port,
         v6,
         args.ssl,
-    ))
+    ), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
