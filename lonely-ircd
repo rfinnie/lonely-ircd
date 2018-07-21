@@ -58,7 +58,8 @@ class SSLTCPServer(TCPServer):
         if hasattr(self, 'args'):
             if self.args.ssloptions is not None:
                 for opt in self.args.ssloptions:
-                    ctx.options |= ssl.Options[opt]
+                    if hasattr(ssl, opt):
+                        ctx.options |= getattr(ssl, opt)
             if self.args.sslciphers is not None:
                 ctx.set_ciphers(self.args.sslciphers)
             if self.args.ssldhparams is not None:
