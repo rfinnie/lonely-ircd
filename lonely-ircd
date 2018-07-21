@@ -55,6 +55,14 @@ class SSLTCPServer(TCPServer):
         newsocket, fromaddr = self.socket.accept()
         ssl.RAND_pseudo_bytes(32)
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        if hasattr(self, 'args'):
+            if self.args.ssloptions is not None:
+                for opt in self.args.ssloptions:
+                    ctx.options |= ssl.Options[opt]
+            if self.args.sslciphers is not None:
+                ctx.set_ciphers(self.args.sslciphers)
+            if self.args.ssldhparams is not None:
+                ctx.load_dh_params(self.args.ssldhparams)
         ctx.load_cert_chain(self.certfile)
         connstream = ctx.wrap_socket(
             newsocket, server_side=True,
@@ -269,6 +277,21 @@ def parse_args(argv=None):
     )
 
     parser.add_argument(
+        '--ssl-options', dest='ssloptions', type=str, action='append',
+        help='ssl options to add',
+    )
+
+    parser.add_argument(
+        '--ssl-ciphers', dest='sslciphers', type=str,
+        help='ssl ciphers to set',
+    )
+
+    parser.add_argument(
+        '--ssl-dh-params', dest='ssldhparams', type=str,
+        help='ssl DH parameters file to load',
+    )
+
+    parser.add_argument(
         '--bind-port', dest='port', type=int, default=0,
         help='port to listen on (default 6667/6697 depending on SSL)',
     )
@@ -309,6 +332,7 @@ if __name__ == '__main__':
             LonelyHandler,
             v6=v6,
         )
+    server.args = args
     print('Listening on {} {} (IPv6 {}, SSL {})'.format(
         args.addr,
         args.port,
