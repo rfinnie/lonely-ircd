@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # lonely-ircd, the loneliness IRC server
-# Copyright (C) 2017 Ryan Finnie
+# Copyright (C) 2017-2021 Ryan Finnie
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -18,19 +18,23 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 # 02110-1301, USA.
 
-import socketserver
+import argparse
+import os
 import socket
+import socketserver
 import ssl
 import sys
-import argparse
 import time
-import os
 
 
 class TCPServer(socketserver.TCPServer):
     def __init__(
-        self, server_address, RequestHandlerClass, bind_and_activate=True,
-        allow_reuse_address=True, v6=False
+        self,
+        server_address,
+        RequestHandlerClass,
+        bind_and_activate=True,
+        allow_reuse_address=True,
+        v6=False,
     ):
         self.allow_reuse_address = allow_reuse_address
         if v6:
@@ -42,12 +46,21 @@ class TCPServer(socketserver.TCPServer):
 
 class SSLTCPServer(TCPServer):
     def __init__(
-        self, server_address, RequestHandlerClass, certfile,
-        bind_and_activate=True, allow_reuse_address=True, v6=False,
+        self,
+        server_address,
+        RequestHandlerClass,
+        certfile,
+        bind_and_activate=True,
+        allow_reuse_address=True,
+        v6=False,
     ):
         TCPServer.__init__(
-            self, server_address, RequestHandlerClass, bind_and_activate,
-            allow_reuse_address=allow_reuse_address, v6=v6,
+            self,
+            server_address,
+            RequestHandlerClass,
+            bind_and_activate,
+            allow_reuse_address=allow_reuse_address,
+            v6=v6,
         )
         self.certfile = certfile
 
@@ -55,7 +68,7 @@ class SSLTCPServer(TCPServer):
         newsocket, fromaddr = self.socket.accept()
         ssl.RAND_pseudo_bytes(32)
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        if hasattr(self, 'args'):
+        if hasattr(self, "args"):
             if self.args.ssloptions is not None:
                 for opt in self.args.ssloptions:
                     if hasattr(ssl, opt):
@@ -65,9 +78,7 @@ class SSLTCPServer(TCPServer):
             if self.args.ssldhparams is not None:
                 ctx.load_dh_params(self.args.ssldhparams)
         ctx.load_cert_chain(self.certfile)
-        connstream = ctx.wrap_socket(
-            newsocket, server_side=True,
-        )
+        connstream = ctx.wrap_socket(newsocket, server_side=True)
         return connstream, fromaddr
 
 
@@ -93,166 +104,176 @@ class LonelyHandler(socketserver.StreamRequestHandler):
             except KeyboardInterrupt:
                 self.request.close()
                 return
-            data = data.rstrip(b'\r\n')
-            print('{} {} < {}'.format(
-                repr(self.client_address),
-                repr(self.server.server_address),
-                str(data),
-            ), flush=True)
+            data = data.rstrip(b"\r\n")
+            print(
+                "{} {} < {}".format(
+                    repr(self.client_address),
+                    repr(self.server.server_address),
+                    str(data),
+                ),
+                flush=True,
+            )
             if not data:
                 break
-            commands = data.decode('UTF-8').split(' ')
+            commands = data.decode("UTF-8").split(" ")
             self.handle_command(commands)
 
     def client_write(self, data):
-        out = (data + '\r\n').encode('UTF-8')
-        print('{} {} > {}'.format(
-            repr(self.client_address),
-            repr(self.server.server_address),
-            str(data),
-        ), flush=True)
+        out = (data + "\r\n").encode("UTF-8")
+        print(
+            "{} {} > {}".format(
+                repr(self.client_address), repr(self.server.server_address), str(data)
+            ),
+            flush=True,
+        )
         self.wfile.write(out)
 
     def handle_command(self, commands):
-        if commands[0] == 'NICK':
+        if commands[0] == "NICK":
             if (self.irc_nickname is not None) and (self.irc_username is not None):
-                self.client_write(':{}!{}@{} NICK :{}'.format(
-                    self.irc_nickname,
-                    self.irc_username,
-                    self.irc_hostname,
-                    commands[1],
-                ))
+                self.client_write(
+                    ":{}!{}@{} NICK :{}".format(
+                        self.irc_nickname,
+                        self.irc_username,
+                        self.irc_hostname,
+                        commands[1],
+                    )
+                )
             self.irc_nickname = commands[1]
-        elif commands[0] == 'USER':
+        elif commands[0] == "USER":
             self.irc_username = commands[1]
             self.irc_hostname = commands[2]
             self.irc_servername = commands[3]
-            self.irc_realname = ' '.join(commands[4:]).lstrip(':')
-            self.client_write(':{} 375 {} :- {} Message of the day - '.format(
-                self.irc_servername,
-                self.irc_nickname,
-                self.irc_servername,
-            ))
-            self.client_write(':{} 372 {} :- Welcome to the IRC server!'.format(
-                self.irc_servername,
-                self.irc_nickname,
-            ))
-            self.client_write(':{} 376 {} :End of /MOTD command'.format(
-                self.irc_servername,
-                self.irc_nickname,
-            ))
+            self.irc_realname = " ".join(commands[4:]).lstrip(":")
+            self.client_write(
+                ":{} 375 {} :- {} Message of the day - ".format(
+                    self.irc_servername, self.irc_nickname, self.irc_servername
+                )
+            )
+            self.client_write(
+                ":{} 372 {} :- Welcome to the IRC server!".format(
+                    self.irc_servername, self.irc_nickname
+                )
+            )
+            self.client_write(
+                ":{} 376 {} :End of /MOTD command".format(
+                    self.irc_servername, self.irc_nickname
+                )
+            )
         elif (self.irc_nickname is None) or (self.irc_username is None):
             return
-        elif commands[0] == 'JOIN':
-            channels = commands[1].split(',')
+        elif commands[0] == "JOIN":
+            channels = commands[1].split(",")
             for channel in channels:
-                self.client_write(':{}!{}@{} JOIN {}'.format(
-                    self.irc_nickname,
-                    self.irc_username,
-                    self.irc_hostname,
-                    channel,
-                ))
-                self.client_write(':{} 353 {} = {} :@{}'.format(
-                    self.irc_servername,
-                    self.irc_nickname,
-                    channel,
-                    self.irc_nickname,
-                ))
-                self.client_write(':{} 366 {} {} :End of /NAMES list'.format(
-                    self.irc_servername,
-                    self.irc_nickname,
-                    channel,
-                ))
-        elif commands[0] == 'PART':
-            channels = commands[1].split(',')
+                self.client_write(
+                    ":{}!{}@{} JOIN {}".format(
+                        self.irc_nickname, self.irc_username, self.irc_hostname, channel
+                    )
+                )
+                self.client_write(
+                    ":{} 353 {} = {} :@{}".format(
+                        self.irc_servername,
+                        self.irc_nickname,
+                        channel,
+                        self.irc_nickname,
+                    )
+                )
+                self.client_write(
+                    ":{} 366 {} {} :End of /NAMES list".format(
+                        self.irc_servername, self.irc_nickname, channel
+                    )
+                )
+        elif commands[0] == "PART":
+            channels = commands[1].split(",")
             for channel in channels:
-                self.client_write(':{}!{}@{} PART {}'.format(
-                    self.irc_nickname,
-                    self.irc_username,
-                    self.irc_hostname,
-                    channel,
-                ))
-        elif commands[0] == 'TOPIC':
-            self.client_write(':{} 331 {} :No topic is set'.format(
-                self.irc_servername,
-                commands[1],
-            ))
-        elif commands[0] == 'MODE':
+                self.client_write(
+                    ":{}!{}@{} PART {}".format(
+                        self.irc_nickname, self.irc_username, self.irc_hostname, channel
+                    )
+                )
+        elif commands[0] == "TOPIC":
+            self.client_write(
+                ":{} 331 {} :No topic is set".format(self.irc_servername, commands[1])
+            )
+        elif commands[0] == "MODE":
             if len(commands) == 3:
-                if commands[1][0] == '#':
-                    if commands[2] == 'b':
-                        self.client_write(':{} 368 {} {} :End of Channel Ban List'.format(
-                            self.irc_servername,
-                            self.irc_nickname,
-                            commands[1],
-                        ))
+                if commands[1][0] == "#":
+                    if commands[2] == "b":
+                        self.client_write(
+                            ":{} 368 {} {} :End of Channel Ban List".format(
+                                self.irc_servername, self.irc_nickname, commands[1]
+                            )
+                        )
                     else:
                         # TODO
                         pass
                 else:
-                    self.client_write(':{} MODE {} :{}'.format(
-                        self.irc_nickname,
-                        commands[1],
-                        commands[2],
-                    ))
+                    self.client_write(
+                        ":{} MODE {} :{}".format(
+                            self.irc_nickname, commands[1], commands[2]
+                        )
+                    )
             elif len(commands) == 2:
-                if commands[1][0] == '#':
-                    self.client_write(':{} 324 {} {} + '.format(
-                        self.irc_servername,
-                        self.irc_nickname,
-                        commands[1],
-                    ))
-                    self.client_write(':{} 329 {} {} {}'.format(
-                        self.irc_servername,
-                        self.irc_nickname,
-                        commands[1],
-                        str(int(time.time())),
-                    ))
+                if commands[1][0] == "#":
+                    self.client_write(
+                        ":{} 324 {} {} + ".format(
+                            self.irc_servername, self.irc_nickname, commands[1]
+                        )
+                    )
+                    self.client_write(
+                        ":{} 329 {} {} {}".format(
+                            self.irc_servername,
+                            self.irc_nickname,
+                            commands[1],
+                            str(int(time.time())),
+                        )
+                    )
                 else:
-                    self.client_write(':{} 221 {} + '.format(
-                        self.irc_servername,
-                        commands[1],
-                    ))
-        elif commands[0] == 'NAMES':
-            channels = commands[1].split(',')
+                    self.client_write(
+                        ":{} 221 {} + ".format(self.irc_servername, commands[1])
+                    )
+        elif commands[0] == "NAMES":
+            channels = commands[1].split(",")
             for channel in channels:
-                self.client_write(':{} 353 {} = {} :@{}'.format(
+                self.client_write(
+                    ":{} 353 {} = {} :@{}".format(
+                        self.irc_servername,
+                        self.irc_nickname,
+                        channel,
+                        self.irc_nickname,
+                    )
+                )
+                self.client_write(
+                    ":{} 366 {} {} :End of /NAMES list".format(
+                        self.irc_servername, self.irc_nickname, channel
+                    )
+                )
+        elif commands[0] == "WHO":
+            self.client_write(
+                ":{} 352 {} {} {} {} {} {} H@ :0 {}".format(
                     self.irc_servername,
                     self.irc_nickname,
-                    channel,
+                    commands[1],
                     self.irc_nickname,
-                ))
-                self.client_write(':{} 366 {} {} :End of /NAMES list'.format(
+                    self.irc_hostname,
                     self.irc_servername,
-                    self.irc_nickname,
-                    channel,
-                ))
-        elif commands[0] == 'WHO':
-            self.client_write(':{} 352 {} {} {} {} {} {} H@ :0 {}'.format(
-                self.irc_servername,
-                self.irc_nickname,
-                commands[1],
-                self.irc_nickname,
-                self.irc_hostname,
-                self.irc_servername,
-                self.irc_username,
-                self.irc_realname,
-            ))
-            self.client_write(':{} 315 {} {} :End of /WHO list'.format(
-                self.irc_servername,
-                self.irc_nickname,
-                commands[1],
-            ))
-        elif commands[0] == 'PING':
-            self.client_write(':{} PONG {}'.format(
-                self.irc_servername,
-                commands[1],
-            ))
-        elif commands[0] == 'QUIT':
-            self.client_write('ERROR :Closing Link: {}[{}]'.format(
-                self.irc_nickname,
-                self.irc_hostname,
-            ))
+                    self.irc_username,
+                    self.irc_realname,
+                )
+            )
+            self.client_write(
+                ":{} 315 {} {} :End of /WHO list".format(
+                    self.irc_servername, self.irc_nickname, commands[1]
+                )
+            )
+        elif commands[0] == "PING":
+            self.client_write(":{} PONG {}".format(self.irc_servername, commands[1]))
+        elif commands[0] == "QUIT":
+            self.client_write(
+                "ERROR :Closing Link: {}[{}]".format(
+                    self.irc_nickname, self.irc_hostname
+                )
+            )
             self.request.close()
 
 
@@ -260,46 +281,56 @@ def parse_args(argv=None):
     if argv is None:
         argv = sys.argv
 
-    default_certfile = os.path.join(os.getcwd(), 'cert.pem')
+    default_certfile = os.path.join(os.getcwd(), "cert.pem")
 
     parser = argparse.ArgumentParser(
-        description='lonely-ircd',
+        description="lonely-ircd",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
+    parser.add_argument("--ssl", dest="ssl", action="store_true", help="listen on SSL")
+
     parser.add_argument(
-        '--ssl', dest='ssl', action='store_true',
-        help='listen on SSL',
+        "--ssl-certificate",
+        dest="certfile",
+        type=str,
+        default=default_certfile,
+        help="ssl key/certificate",
     )
 
     parser.add_argument(
-        '--ssl-certificate', dest='certfile', type=str, default=default_certfile,
-        help='ssl key/certificate',
+        "--ssl-options",
+        dest="ssloptions",
+        type=str,
+        action="append",
+        help="ssl options to add",
     )
 
     parser.add_argument(
-        '--ssl-options', dest='ssloptions', type=str, action='append',
-        help='ssl options to add',
+        "--ssl-ciphers", dest="sslciphers", type=str, help="ssl ciphers to set"
     )
 
     parser.add_argument(
-        '--ssl-ciphers', dest='sslciphers', type=str,
-        help='ssl ciphers to set',
+        "--ssl-dh-params",
+        dest="ssldhparams",
+        type=str,
+        help="ssl DH parameters file to load",
     )
 
     parser.add_argument(
-        '--ssl-dh-params', dest='ssldhparams', type=str,
-        help='ssl DH parameters file to load',
+        "--bind-port",
+        dest="port",
+        type=int,
+        default=0,
+        help="port to listen on (default 6667/6697 depending on SSL)",
     )
 
     parser.add_argument(
-        '--bind-port', dest='port', type=int, default=0,
-        help='port to listen on (default 6667/6697 depending on SSL)',
-    )
-
-    parser.add_argument(
-        '--bind-address', dest='addr', type=str, default='::',
-        help='address to listen on',
+        "--bind-address",
+        dest="addr",
+        type=str,
+        default="::",
+        help="address to listen on",
     )
 
     args = parser.parse_args(args=argv[1:])
@@ -313,33 +344,26 @@ def parse_args(argv=None):
     return args
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args = parse_args()
 
-    if ':' in args.addr:
+    if ":" in args.addr:
         v6 = True
     else:
         v6 = False
     if args.ssl:
         server = SSLForkingServer(
-            (args.addr, args.port),
-            LonelyHandler,
-            args.certfile,
-            v6=v6,
+            (args.addr, args.port), LonelyHandler, args.certfile, v6=v6
         )
     else:
-        server = ForkingServer(
-            (args.addr, args.port),
-            LonelyHandler,
-            v6=v6,
-        )
+        server = ForkingServer((args.addr, args.port), LonelyHandler, v6=v6)
     server.args = args
-    print('Listening on {} {} (IPv6 {}, SSL {})'.format(
-        args.addr,
-        args.port,
-        v6,
-        args.ssl,
-    ), flush=True)
+    print(
+        "Listening on {} {} (IPv6 {}, SSL {})".format(
+            args.addr, args.port, v6, args.ssl
+        ),
+        flush=True,
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
