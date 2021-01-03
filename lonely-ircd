@@ -20,6 +20,7 @@
 
 import argparse
 import os
+import pathlib
 import socket
 import socketserver
 import ssl
@@ -63,22 +64,27 @@ class SSLTCPServer(TCPServer):
             v6=v6,
         )
         self.certfile = certfile
+        self.certfile_seen_mtime = None
 
-    def get_request(self):
-        newsocket, fromaddr = self.socket.accept()
-        ssl.RAND_pseudo_bytes(32)
-        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        self.ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         if hasattr(self, "args"):
             if self.args.ssloptions is not None:
                 for opt in self.args.ssloptions:
                     if hasattr(ssl, opt):
-                        ctx.options |= getattr(ssl, opt)
+                        self.ssl_ctx.options |= getattr(ssl, opt)
             if self.args.sslciphers is not None:
-                ctx.set_ciphers(self.args.sslciphers)
+                self.ssl_ctx.set_ciphers(self.args.sslciphers)
             if self.args.ssldhparams is not None:
-                ctx.load_dh_params(self.args.ssldhparams)
-        ctx.load_cert_chain(self.certfile)
-        connstream = ctx.wrap_socket(newsocket, server_side=True)
+                self.ssl_ctx.load_dh_params(self.args.ssldhparams)
+
+    def get_request(self):
+        certfile_seen_mtime = self.certfile.stat().st_mtime
+        if self.certfile_seen_mtime != certfile_seen_mtime:
+            self.ssl_ctx.load_cert_chain(self.certfile)
+            self.certfile_seen_mtime = certfile_seen_mtime
+
+        newsocket, fromaddr = self.socket.accept()
+        connstream = self.ssl_ctx.wrap_socket(newsocket, server_side=True)
         return connstream, fromaddr
 
 
@@ -281,8 +287,6 @@ def parse_args(argv=None):
     if argv is None:
         argv = sys.argv
 
-    default_certfile = os.path.join(os.getcwd(), "cert.pem")
-
     parser = argparse.ArgumentParser(
         description="lonely-ircd",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -293,8 +297,8 @@ def parse_args(argv=None):
     parser.add_argument(
         "--ssl-certificate",
         dest="certfile",
-        type=str,
-        default=default_certfile,
+        type=pathlib.Path,
+        default=os.path.join(os.getcwd(), "cert.pem"),
         help="ssl key/certificate",
     )
 
@@ -313,7 +317,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--ssl-dh-params",
         dest="ssldhparams",
-        type=str,
+        type=pathlib.Path,
         help="ssl DH parameters file to load",
     )
 
