@@ -138,6 +138,25 @@ class LonelyHandler(socketserver.StreamRequestHandler):
             self.irc_servername = commands[3]
             self.irc_realname = " ".join(commands[4:]).lstrip(":")
             self.client_write(
+                ":{} 001 Welcome to the Internet Relay Network {}!{}@{}".format(
+                    self.irc_servername,
+                    self.irc_nickname,
+                    self.irc_username,
+                    self.irc_hostname,
+                )
+            )
+            self.client_write(
+                ":{} 002 Your host is {}".format(
+                    self.irc_servername, self.irc_servername
+                )
+            )
+            self.client_write(
+                ":{} 003 This server was created for you".format(self.irc_servername)
+            )
+            self.client_write(
+                ":{} 004 {}".format(self.irc_servername, self.irc_servername)
+            )
+            self.client_write(
                 ":{} 375 {} :- {} Message of the day - ".format(
                     self.irc_servername, self.irc_nickname, self.irc_servername
                 )
@@ -158,7 +177,7 @@ class LonelyHandler(socketserver.StreamRequestHandler):
             channels = commands[1].split(",")
             for channel in channels:
                 self.client_write(
-                    ":{}!{}@{} JOIN {}".format(
+                    ":{}!{}@{} JOIN :{}".format(
                         self.irc_nickname, self.irc_username, self.irc_hostname, channel
                     )
                 )
