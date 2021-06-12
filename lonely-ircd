@@ -21,8 +21,10 @@ class TCPServer(socketserver.TCPServer):
         RequestHandlerClass,
         bind_and_activate=True,
         allow_reuse_address=True,
+        args=None,
         v6=False,
     ):
+        self.args = args
         self.allow_reuse_address = allow_reuse_address
         if v6:
             self.address_family = socket.AF_INET6
@@ -32,45 +34,19 @@ class TCPServer(socketserver.TCPServer):
 
 
 class SSLTCPServer(TCPServer):
-    def __init__(
-        self,
-        server_address,
-        RequestHandlerClass,
-        certfile,
-        bind_and_activate=True,
-        allow_reuse_address=True,
-        v6=False,
-    ):
-        TCPServer.__init__(
-            self,
-            server_address,
-            RequestHandlerClass,
-            bind_and_activate,
-            allow_reuse_address=allow_reuse_address,
-            v6=v6,
-        )
-        self.certfile = certfile
-        self.certfile_seen_mtime = None
-
-        self.ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        if hasattr(self, "args"):
-            if self.args.ssloptions is not None:
-                for opt in self.args.ssloptions:
-                    if hasattr(ssl, opt):
-                        self.ssl_ctx.options |= getattr(ssl, opt)
-            if self.args.sslciphers is not None:
-                self.ssl_ctx.set_ciphers(self.args.sslciphers)
-            if self.args.ssldhparams is not None:
-                self.ssl_ctx.load_dh_params(self.args.ssldhparams)
-
     def get_request(self):
-        certfile_seen_mtime = self.certfile.stat().st_mtime
-        if self.certfile_seen_mtime != certfile_seen_mtime:
-            self.ssl_ctx.load_cert_chain(self.certfile)
-            self.certfile_seen_mtime = certfile_seen_mtime
-
         newsocket, fromaddr = self.socket.accept()
-        connstream = self.ssl_ctx.wrap_socket(newsocket, server_side=True)
+        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ctx.load_cert_chain(self.args.certfile)
+        if self.args.ssldhparams is not None:
+            ctx.load_dh_params(self.args.ssldhparams)
+        if self.args.ssloptions is not None:
+            for opt in self.args.ssloptions:
+                if hasattr(ssl, opt):
+                    ctx.options |= getattr(ssl, opt)
+        if self.args.sslciphers is not None:
+            ctx.set_ciphers(self.args.sslciphers)
+        connstream = ctx.wrap_socket(newsocket, server_side=True)
         return connstream, fromaddr
 
 
@@ -360,13 +336,8 @@ if __name__ == "__main__":
         v6 = True
     else:
         v6 = False
-    if args.ssl:
-        server = SSLForkingServer(
-            (args.addr, args.port), LonelyHandler, args.certfile, v6=v6
-        )
-    else:
-        server = ForkingServer((args.addr, args.port), LonelyHandler, v6=v6)
-    server.args = args
+    server_class = SSLForkingServer if args.ssl else ForkingServer
+    server = server_class((args.addr, args.port), LonelyHandler, args=args, v6=v6)
     print(
         "Listening on {} {} (IPv6 {}, SSL {})".format(
             args.addr, args.port, v6, args.ssl
