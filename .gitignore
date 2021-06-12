@@ -1,1 +1,4 @@
 cert.pem
+build/
+dist/
+*.egg-info/
